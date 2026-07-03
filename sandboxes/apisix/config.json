@@ -40,9 +40,9 @@
 	},
 	"resources": {
 		"cpu": 1,
-		"memory": 256,
-		"processes": 256,
-		"files": 256
+		"memory": 192,
+		"processes": 128,
+		"files": 192
 	},
 	"mount": {
 		"workdir": "/sandbox",

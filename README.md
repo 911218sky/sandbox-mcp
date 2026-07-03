@@ -117,6 +117,37 @@ Add this to your `claude_desktop_config.json` for Claude Desktop or `mcp.json` f
 > 
 > You can create and add your own sandboxes in `$XDG_CONFIG_HOME/sandbox-mcp/sandboxes`. A sandbox is essentially a Dockerfile and a JSON configuration. Check out the [examples and the guide](/sandboxes) to learn more.
 
+
+## Security
+
+Sandbox MCP provides isolated code execution through Docker containers with multiple security layers:
+
+### Security Features
+
+- **Container Isolation**: All sandboxes drop all Linux capabilities and run as non-root users
+- **Network Isolation**: Most sandboxes have no network access (`network: "none"`)
+- **Resource Limits**: CPU, memory, process, and file count restrictions prevent resource exhaustion
+- **Read-only Filesystem**: Some sandboxes use read-only filesystems for additional protection
+
+### Network-Enabled Sandboxes
+
+Two sandboxes require network access:
+
+- **network-tools**: For network diagnostics and troubleshooting
+- **apisix**: For API gateway configuration testing
+
+⚠️ **Warning**: These sandboxes can access external networks. Use with caution and only when necessary.
+
+### Best Practices
+
+1. Always review generated code before execution
+2. Prefer network-isolated sandboxes (python, go, javascript, rust, shell) when possible
+3. Monitor resource usage and adjust limits as needed
+4. Keep sandbox-mcp and Docker updated to latest versions
+5. Review [SECURITY.md](SECURITY.md) for detailed security information
+
+For detailed security architecture, best practices, and vulnerability reporting, see [SECURITY.md](SECURITY.md).
+
 ## Development
 
 Fork and clone the repository:
