@@ -1,0 +1,43 @@
+{
+	"id": "network-tools",
+	"name": "Network Tools",
+	"description": "Use various network utilities in an isolated Linux sandbox. Perfect for network diagnostics and troubleshooting. See https://github.com/jonlabelle/docker-network-tools for a list of available tools.",
+	"hints": {
+		"isDestructive": true,
+		"isIdempotent": false
+	},
+	"version": "0.1.0",
+	"image": "sandbox-mcp/network-tools:latest",
+	"user": "sandbox",
+	"entrypoint": "main.sh",
+	"timeout": 60,
+	"command": [
+		"sh",
+		"main.sh"
+	],
+	"parameters": {
+		"additionalFiles": true
+	},
+	"security": {
+		"readOnly": true,
+		"capDrop": [
+			"all"
+		],
+		"securityOpt": [
+			"no-new-privileges:true"
+		],
+		"network": "bridge"
+	},
+	"resources": {
+		"cpu": 1,
+		"memory": 64,
+		"processes": 64,
+		"files": 96
+	},
+	"mount": {
+		"workdir": "/sandbox",
+		"tmpdirPrefix": "sandbox-mcp-",
+		"scriptPerms": "0755",
+		"readOnly": true
+	}
+}
