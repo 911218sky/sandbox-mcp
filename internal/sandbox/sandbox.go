@@ -65,21 +65,13 @@ func NewSandboxTool(sandboxConfig *config.SandboxConfig) mcp.Tool {
 		mcp.WithDestructiveHintAnnotation(sandboxConfig.Hints.IsDestructive()),
 		mcp.WithIdempotentHintAnnotation(sandboxConfig.Hints.IsIdempotent()),
 		mcp.WithOpenWorldHintAnnotation(sandboxConfig.Hints.IsExternalInteraction(sandboxConfig.Security.Network)),
-
-		// Session and cleanup support
-		withSession(),
-		withCleanup(),
 	}
 
 	// Add any specific additional files if provided in the config
 	for _, file := range sandboxConfig.Parameters.Files {
 		options = append(options, withFile(file.ParamName(), file.Description, true))
-		// Add patch parameter for each file
-		options = append(options, withPatch(file.ParamName()))
 	}
 
-	// Add patch parameter for entrypoint
-	options = append(options, withPatch(sandboxConfig.ParamEntrypoint()))
 
 	// Allow adding more files if enabled
 	if sandboxConfig.Parameters.AdditionalFiles {
@@ -91,7 +83,15 @@ func NewSandboxTool(sandboxConfig *config.SandboxConfig) mcp.Tool {
 
 // NewSandboxToolHandler creates a handler function for a sandbox tool
 func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, request mcp.CallToolRequest) (result *mcp.CallToolResult, err error) {
+		// Panic recovery to prevent MCP server crash
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Panic in sandbox handler for %s: %v", sandboxConfig.Id, r)
+				result = mcp.NewToolResultError(fmt.Sprintf("Internal error: %v", r))
+				err = nil
+			}
+		}()
 		// Parse session and cleanup parameters
 		sessionID, _ := request.Params.Arguments["session_id"].(string)
 		cleanup, _ := request.Params.Arguments["cleanup"].(bool)
@@ -263,15 +263,15 @@ func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Con
 			})
 		}()
 
-		// If there is a "before" step, we need to start the container and then
-		// exec the command. This is used for sandboxes that need to start a
+		// Start the container
+		if err := cli.ContainerStart(execCtx, resp.ID, container.StartOptions{}); err != nil {
+			return nil, fmt.Errorf("failed to start container: %v", err)
+		}
+
+		// If there is a "before" step, we need to exec the command inside the
+		// running container. This is used for sandboxes that need to start a
 		// service before running the command (e.g., a shell).
 		if len(sandboxConfig.ExecCommand()) > 0 {
-			// Start the container
-			if err := cli.ContainerStart(execCtx, resp.ID, container.StartOptions{}); err != nil {
-				return nil, fmt.Errorf("failed to start container: %v", err)
-			}
-
 			// Wait for container to be running
 			if err := waitForContainer(execCtx, cli, resp.ID, 30*time.Second); err != nil {
 				return nil, fmt.Errorf("failed to wait for container: %v", err)
@@ -514,8 +514,6 @@ func generateSandboxDescription(sandboxConfig *config.SandboxConfig) string {
 
 	description += fmt.Sprintf(" The execution is limited to %d seconds.", sandboxConfig.TimeoutRaw)
 
-	// Add session support information
-	description += " Supports session-based persistent storage via `session_id` parameter for iterative development. Use `{filename}_patch` for incremental edits instead of rewriting entire files."
 
 	return description
 }
