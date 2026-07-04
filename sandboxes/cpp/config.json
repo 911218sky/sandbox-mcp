@@ -31,7 +31,7 @@
 	},
 	"resources": {
 		"cpu": 1,
-		"memory": 128,
+		"memory": 512,
 		"processes": 64,
 		"files": 96
 	},
