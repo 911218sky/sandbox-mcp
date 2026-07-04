@@ -2,7 +2,7 @@
 
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/pottekkat/sandbox-mcp/release.yaml)
 ![GitHub Release](https://img.shields.io/github/v/release/pottekkat/sandbox-mcp)
-![GitHub commits since latest release](https://img.shields.io/github/commits-since/pottekkat/sandbox-mcp/latest)
+![GitHub commits since latest release](https://img.shields.io/github.com/pottekkat/sandbox-mcp/commits-since/pottekkat/sandbox-mcp/latest)
 ![GitHub License](https://img.shields.io/github/license/pottekkat/sandbox-mcp)
 
 **Sandbox MCP** is a Model Context Protocol (MCP) server that enables LLMs (MCP hosts/clients) to **run code in secure, isolated Docker containers**.
@@ -62,7 +62,7 @@ See the [Development section](#development).
 
 ## Usage
 
-### Initilization
+### Initialization
 
 Before you use `sandbox-mcp` with LLMs, you need to initialize its configuration:
 
@@ -101,16 +101,25 @@ Add this to your `claude_desktop_config.json` for Claude Desktop or `mcp.json` f
 
 ## Available Sandboxes
 
+### Programming Languages
+
+| Sandbox | Language | Description |
+|---------|----------|-------------|
+| [c](/sandboxes/c) | C | Compile and run C code in an isolated environment. Uses GCC on Alpine Linux. |
+| [cpp](/sandboxes/cpp) | C++ | Compile and run C++ code in an isolated environment. Supports C++20. |
+| [go](/sandboxes/go) | Go | Run Go code securely in an isolated environment with network access. |
+| [java](/sandboxes/java) | Java | Compile and run Java code in an isolated sandbox. Supports Java preview features. |
+| [javascript](/sandboxes/javascript) | JavaScript | Run JavaScript code in an isolated environment using Node.js. |
+| [python](/sandboxes/python) | Python | Safely execute Python code in a secure, isolated environment. |
+| [rust](/sandboxes/rust) | Rust | Compile and run Rust code in an isolated environment. |
+
+### Tools & Infrastructure
+
 | Sandbox | Description |
 |---------|-------------|
 | [shell](/sandboxes/shell) | A secure, isolated Linux environment for running lightweight commands that does not require network access. |
-| [python](/sandboxes/python) | Safely execute Python code in a secure, isolated environment. |
-| [rust](/sandboxes/rust) | Compile and run Rust code in an isolated environment. |
 | [network-tools](/sandboxes/network-tools) | Use various network utilities in an isolated Linux sandbox. Perfect for network diagnostics and troubleshooting. See https://github.com/jonlabelle/docker-network-tools for a list of available tools. |
-| [go](/sandboxes/go) | Run Go code securely in an isolated environment with network access. |
-| [javascript](/sandboxes/javascript) | Run JavaScript code in an isolated environment using Node.js. |
-| [apisix](/sandboxes/apisix) | Run a lightweight instance of Apache APISIX, which can be configured through a YAML file and can be interacted through the curl command provided in the main.sh file. For example, curl -sI `http://127.0.0.1:9080/ip`. |
-| [java](/sandboxes/java) | Compile and run Java code in an isolated sandbox. Supports Java preview features. |
+| [apisix](/sandboxes/apisix) | Run a lightweight instance of Apache APISIX, which can be configured through a YAML file and can be interacted through the curl command provided in the main.sh file. For example, `curl -sI http://127.0.0.1:9080/ip`. |
 
 > [!IMPORTANT]
 > ### Your Own Sandbox

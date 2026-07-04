@@ -16,7 +16,7 @@ Inside the directory, add a `Dockerfile` that sets up the sandbox:
 FROM debian:12-slim
 
 # Install some basic command line tools
-# and remove the apt cache to save space
+# and remove the apt cache to save size
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         curl \
@@ -132,5 +132,85 @@ Each of these properties is explained below:
 	- `readOnly`: If `true`, the sandbox (volume mount) is read-only.
 
 After configuring the sandbox, you can reload the MCP host/client application (e.g., Cursor IDE or Claude Desktop) to apply the changes. You will see `my-sandbox` in the list of available tools.
+
+## Example: Compiled Language Sandbox (C/C++)
+
+For compiled languages, the `command` field needs to compile the source code before executing it. Here's an example of a C sandbox using Alpine Linux with GCC:
+
+**Dockerfile:**
+
+```dockerfile
+FROM alpine:3.21
+
+RUN apk add --no-cache gcc musl-dev libc-dev make
+RUN adduser --home /sandbox --disabled-password sandbox
+
+USER sandbox
+WORKDIR /sandbox
+```
+
+**config.json:**
+
+```json
+{
+	"id": "c",
+	"name": "C",
+	"description": "Compile and run C code in an isolated environment.",
+	"hints": {
+		"isDestructive": false,
+		"isIdempotent": true
+	},
+	"version": "0.1.0",
+	"image": "sandbox-mcp/c:latest",
+	"user": "sandbox",
+	"entrypoint": "main.c",
+	"timeout": 60,
+	"command": [
+		"sh",
+		"-c",
+		"gcc -o main main.c -lm && ./main"
+	],
+	"parameters": {
+		"additionalFiles": true
+	},
+	"security": {
+		"readOnly": false,
+		"capDrop": [
+			"all"
+		],
+		"securityOpt": [
+			"no-new-privileges:true"
+		],
+		"network": "none"
+	},
+	"resources": {
+		"cpu": 1,
+		"memory": 64,
+		"processes": 64,
+		"files": 96
+	},
+	"mount": {
+		"workdir": "/sandbox",
+		"tmpdirPrefix": "sandbox-mcp-",
+		"scriptPerms": "0755",
+		"readOnly": false
+	}
+}
+```
+
+The key difference from interpreted-language sandboxes is the `command` field uses `sh -c` to chain compilation and execution: `"gcc -o main main.c -lm && ./main"`. This ensures the program is compiled first, and only executed if compilation succeeds.
+
+For C++, simply swap `gcc` for `g++` and adjust the standard flag:
+
+```json
+"command": [
+	"sh",
+	"-c",
+	"g++ -std=c++20 -o main main.cpp -lm && ./main"
+]
+```
+
+> [!TIP]
+> C++ compilation typically requires more memory than C. Consider setting `memory` to at least `128` MB for C++ sandboxes.
 
 Feel free to share the sandboxes you create with the community!

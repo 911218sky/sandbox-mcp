@@ -1,0 +1,44 @@
+{
+	"id": "cpp",
+	"name": "C++",
+	"description": "Compile and run C++ code in an isolated environment.",
+	"hints": {
+		"isDestructive": false,
+		"isIdempotent": true
+	},
+	"version": "0.1.0",
+	"image": "sandbox-mcp/cpp:latest",
+	"user": "sandbox",
+	"entrypoint": "main.cpp",
+	"timeout": 60,
+	"command": [
+		"sh",
+		"-c",
+		"g++ -std=c++20 -o main main.cpp -lm && ./main"
+	],
+	"parameters": {
+		"additionalFiles": true
+	},
+	"security": {
+		"readOnly": false,
+		"capDrop": [
+			"all"
+		],
+		"securityOpt": [
+			"no-new-privileges:true"
+		],
+		"network": "none"
+	},
+	"resources": {
+		"cpu": 1,
+		"memory": 128,
+		"processes": 64,
+		"files": 96
+	},
+	"mount": {
+		"workdir": "/sandbox",
+		"tmpdirPrefix": "sandbox-mcp-",
+		"scriptPerms": "0755",
+		"readOnly": false
+	}
+}
