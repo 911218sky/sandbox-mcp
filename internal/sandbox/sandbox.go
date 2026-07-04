@@ -65,12 +65,20 @@ func NewSandboxTool(sandboxConfig *config.SandboxConfig) mcp.Tool {
 		mcp.WithDestructiveHintAnnotation(sandboxConfig.Hints.IsDestructive()),
 		mcp.WithIdempotentHintAnnotation(sandboxConfig.Hints.IsIdempotent()),
 		mcp.WithOpenWorldHintAnnotation(sandboxConfig.Hints.IsExternalInteraction(sandboxConfig.Security.Network)),
+
+		// Session and cleanup support
+		withSession(),
+		withCleanup(),
 	}
 
 	// Add any specific additional files if provided in the config
 	for _, file := range sandboxConfig.Parameters.Files {
 		options = append(options, withFile(file.ParamName(), file.Description, true))
+		options = append(options, withPatch(file.ParamName()))
 	}
+
+	// Add patch parameter for entrypoint
+	options = append(options, withPatch(sandboxConfig.ParamEntrypoint()))
 
 
 	// Allow adding more files if enabled
@@ -514,6 +522,8 @@ func generateSandboxDescription(sandboxConfig *config.SandboxConfig) string {
 
 	description += fmt.Sprintf(" The execution is limited to %d seconds.", sandboxConfig.TimeoutRaw)
 
+	// Add session support information
+	description += " Supports session-based persistent storage via `session_id` parameter for iterative development. Use `{filename}_patch` for incremental edits instead of rewriting entire files."
 
 	return description
 }
