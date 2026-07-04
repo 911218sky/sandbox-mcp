@@ -20,7 +20,6 @@ func main() {
 	flag.Parse()
 
 	// Configure logging
-	// TODO: Improve logging as per MCP spec
 	log.SetPrefix("[Sandbox MCP] ")
 	log.SetFlags(log.Ldate | log.Ltime)
 
@@ -58,32 +57,37 @@ func main() {
 
 	// Only start MCP server if the stdio flag is present
 	if *stdio {
+		// Initialize session manager
+		sessionCfg := sandbox.DefaultSessionConfig()
+		sm, err := sandbox.NewSessionManager(sessionCfg)
+		if err != nil {
+			log.Fatalf("Failed to initialize session manager: %v", err)
+		}
+		defer sm.Shutdown()
+		sandbox.SetSessionManager(sm)
+		log.Println("Session manager initialized")
+
+		// Clean up orphaned containers and sessions from previous runs
+		sandbox.CleanupOrphanedContainers()
+		sandbox.CleanupOrphanedSessions()
+
 		// Create a new MCP server
 		s := server.NewMCPServer(
 			"Sandbox MCP",
 			"0.1.0",
-			// We don't notify when the list of tools changes
-			// The list of tools never change for now
 			server.WithToolCapabilities(false),
 		)
 
 		// Create and add tools for each sandbox configuration
 		for _, cfg := range configs {
-			// Create a new tool from the config
 			tool := sandbox.NewSandboxTool(cfg)
-
-			// Create a handler using the sandbox config
 			handler := sandbox.NewSandboxToolHandler(cfg)
-
-			// Add the tool to the server
 			s.AddTool(tool, handler)
-
 			log.Printf("Added %s tool from config", cfg.Id)
 		}
 
 		log.Println("Starting Sandbox MCP server...")
 
-		// Start the server
 		if err := server.ServeStdio(s); err != nil {
 			log.Printf("Error starting server: %v\n", err)
 		}

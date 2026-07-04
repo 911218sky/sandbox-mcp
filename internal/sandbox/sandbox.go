@@ -4,18 +4,28 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/pottekkat/sandbox-mcp/internal/config"
 )
+
+// Global session manager (initialized in main.go)
+var sessionManager *SessionManager
+
+// SetSessionManager sets the global session manager instance
+func SetSessionManager(sm *SessionManager) {
+	sessionManager = sm
+}
 
 // waitForContainer waits for a container to be in running state with a specified timeout
 func waitForContainer(ctx context.Context, cli *client.Client, containerID string, timeout time.Duration) error {
@@ -45,7 +55,6 @@ func waitForContainer(ctx context.Context, cli *client.Client, containerID strin
 // NewSandboxTool creates a sandbox tool from a config
 func NewSandboxTool(sandboxConfig *config.SandboxConfig) mcp.Tool {
 	options := []mcp.ToolOption{
-		// All tools have a description and an entrypoint
 		mcp.WithDescription(generateSandboxDescription(sandboxConfig)),
 		withEntrypoint(sandboxConfig.ParamEntrypoint(), fmt.Sprintf("Code to be stored in a file named `%s` and executed with the command `%s`.",
 			sandboxConfig.Entrypoint,
@@ -56,68 +65,115 @@ func NewSandboxTool(sandboxConfig *config.SandboxConfig) mcp.Tool {
 		mcp.WithDestructiveHintAnnotation(sandboxConfig.Hints.IsDestructive()),
 		mcp.WithIdempotentHintAnnotation(sandboxConfig.Hints.IsIdempotent()),
 		mcp.WithOpenWorldHintAnnotation(sandboxConfig.Hints.IsExternalInteraction(sandboxConfig.Security.Network)),
+
+		// Session and cleanup support
+		withSession(),
+		withCleanup(),
 	}
 
 	// Add any specific additional files if provided in the config
 	for _, file := range sandboxConfig.Parameters.Files {
 		options = append(options, withFile(file.ParamName(), file.Description, true))
+		// Add patch parameter for each file
+		options = append(options, withPatch(file.ParamName()))
 	}
+
+	// Add patch parameter for entrypoint
+	options = append(options, withPatch(sandboxConfig.ParamEntrypoint()))
 
 	// Allow adding more files if enabled
 	if sandboxConfig.Parameters.AdditionalFiles {
 		options = append(options, withAdditionalFiles())
 	}
 
-	// Return a new tool with the tool name and provided options
 	return mcp.NewTool(sandboxConfig.Id, options...)
 }
 
 // NewSandboxToolHandler creates a handler function for a sandbox tool
 func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// Return the handler function that will be run when the tool is called
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		// withEntrypoint ToolOption
-		// Get the contents of the entrypoint file from the request
+		// Parse session and cleanup parameters
+		sessionID, _ := request.Params.Arguments["session_id"].(string)
+		cleanup, _ := request.Params.Arguments["cleanup"].(bool)
+		useSession := sessionID != "" && sessionManager != nil
+
+		// Resolve working directory
+		var dir string
+		var sessionCleanup func()
+		if useSession {
+			session, err := sessionManager.GetOrCreate(sessionID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get/create session: %v", err)
+			}
+			dir = session.Dir
+			if cleanup {
+				sessionCleanup = func() {
+					if err := sessionManager.Remove(sessionID); err != nil {
+						log.Printf("Failed to remove session %s: %v", sessionID, err)
+					}
+				}
+			}
+		} else {
+			var err error
+			dir, err = os.MkdirTemp("", sandboxConfig.Mount.TmpDirPrefix)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create a temporary directory: %v", err)
+			}
+			if err := os.Chmod(dir, 0777); err != nil {
+				return nil, fmt.Errorf("failed to set temporary directory permissions: %v", err)
+			}
+			sessionCleanup = func() { os.RemoveAll(dir) }
+		}
+		defer sessionCleanup()
+
+		// Process entrypoint file
 		entrypointFile := config.SandboxFile{Name: sandboxConfig.Entrypoint}
 		entrypointParam := entrypointFile.ParamName()
-		entrypointContent, ok := request.Params.Arguments[entrypointParam].(string)
-		if !ok || entrypointContent == "" {
-			return nil, fmt.Errorf("%s file is required", sandboxConfig.Entrypoint)
-		}
+		entrypointContent, _ := request.Params.Arguments[entrypointParam].(string)
+		entrypointPatch, _ := request.Params.Arguments[entrypointParam+"_patch"].(string)
 
-		// Create a temporary directory for the entrypoint file
-		dir, err := os.MkdirTemp("", sandboxConfig.Mount.TmpDirPrefix)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create a temporary directory: %v", err)
-		}
-		defer os.RemoveAll(dir)
-		if err := os.Chmod(dir, 0777); err != nil {
-			return nil, fmt.Errorf("failed to set temporary directory permissions: %v", err)
-		}
-
-		// Write the entrypoint to script file in the temp directory
 		cmdFile := filepath.Join(dir, sandboxConfig.Entrypoint)
-		if err := os.WriteFile(cmdFile, []byte(entrypointContent), sandboxConfig.Mount.ScriptPerms()); err != nil {
-			return nil, fmt.Errorf("failed to write command file: %v", err)
+		if entrypointContent != "" {
+			if err := os.WriteFile(cmdFile, []byte(entrypointContent), sandboxConfig.Mount.ScriptPerms()); err != nil {
+				return nil, fmt.Errorf("failed to write command file: %v", err)
+			}
+		} else if entrypointPatch != "" {
+			if err := ApplyPatch(cmdFile, entrypointPatch); err != nil {
+				return nil, fmt.Errorf("failed to apply patch to %s: %v", sandboxConfig.Entrypoint, err)
+			}
+		} else if !useSession {
+			return nil, fmt.Errorf("%s file is required", sandboxConfig.Entrypoint)
+		} else {
+			// Session mode: check if file exists
+			if _, err := os.Stat(cmdFile); os.IsNotExist(err) {
+				return nil, fmt.Errorf("%s file is required (not found in session %s)", sandboxConfig.Entrypoint, sessionID)
+			}
 		}
 
-		// withFile ToolOption
-		// Get the contents of the required files from the request
+		// Process configured files
 		for _, file := range sandboxConfig.Parameters.Files {
 			paramName := file.ParamName()
-			content, ok := request.Params.Arguments[paramName].(string)
-			if !ok || content == "" {
-				return nil, fmt.Errorf("%s file is required", file.Name)
-			}
+			content, _ := request.Params.Arguments[paramName].(string)
+			patchStr, _ := request.Params.Arguments[paramName+"_patch"].(string)
 
 			filePath := filepath.Join(dir, file.Name)
-			if err := os.WriteFile(filePath, []byte(content), sandboxConfig.Mount.ScriptPerms()); err != nil {
-				return nil, fmt.Errorf("failed to write file %s: %v", file.Name, err)
+			_, fileExists := os.Stat(filePath)
+			isRequired := !useSession || fileExists != nil
+
+			if content != "" {
+				if err := os.WriteFile(filePath, []byte(content), sandboxConfig.Mount.ScriptPerms()); err != nil {
+					return nil, fmt.Errorf("failed to write file %s: %v", file.Name, err)
+				}
+			} else if patchStr != "" {
+				if err := ApplyPatch(filePath, patchStr); err != nil {
+					return nil, fmt.Errorf("failed to apply patch to %s: %v", file.Name, err)
+				}
+			} else if isRequired {
+				return nil, fmt.Errorf("%s file is required", file.Name)
 			}
 		}
 
-		// withAdditionalFiles ToolOption
-		// Handle additional files if provided
+		// Handle additional files
 		if files, ok := request.Params.Arguments["files"].([]any); ok {
 			for _, file := range files {
 				if fileMap, ok := file.(map[string]any); ok {
@@ -134,15 +190,21 @@ func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Con
 
 		// Initialize Docker client
 		cli, err := client.NewClientWithOpts(
-			// Let the client be configured through environment variables
 			client.FromEnv,
-			// Try to support whatever version of the daemon is available
 			client.WithAPIVersionNegotiation(),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Docker client: %v", err)
 		}
 		defer cli.Close()
+
+		// Build container labels
+		labels := map[string]string{
+			"sandbox-mcp": "true",
+		}
+		if useSession {
+			labels["sandbox-mcp-session"] = sessionID
+		}
 
 		// Create container config
 		containerConfig := &container.Config{
@@ -151,6 +213,7 @@ func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Con
 			WorkingDir: sandboxConfig.Mount.WorkDir,
 			User:       sandboxConfig.User,
 			Tty:        sandboxConfig.Tty(),
+			Labels:     labels,
 		}
 
 		// Create host config
@@ -202,33 +265,32 @@ func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Con
 			})
 		}()
 
-		// Start the container
-		if err := cli.ContainerStart(execCtx, resp.ID, container.StartOptions{}); err != nil {
-			return nil, fmt.Errorf("failed to start container: %v", err)
-		}
-
-		// Only exec Command if Before was used to start the container
-		if sandboxConfig.ExecCommand() != nil {
+		// If there is a "before" step, we need to start the container and then
+		// exec the command. This is used for sandboxes that need to start a
+		// service before running the command (e.g., a shell).
+		if len(sandboxConfig.ExecCommand()) > 0 {
+			// Start the container
+			if err := cli.ContainerStart(execCtx, resp.ID, container.StartOptions{}); err != nil {
+				return nil, fmt.Errorf("failed to start container: %v", err)
+			}
 
 			// Wait for container to be running
-			if err := waitForContainer(execCtx, cli, resp.ID, 10*time.Second); err != nil {
-				return nil, err
+			if err := waitForContainer(execCtx, cli, resp.ID, 30*time.Second); err != nil {
+				return nil, fmt.Errorf("failed to wait for container: %v", err)
 			}
 
-			execConfig := container.ExecOptions{
-				Cmd:          sandboxConfig.Command,
+			// Create exec instance
+			execResp, err := cli.ContainerExecCreate(execCtx, resp.ID, container.ExecOptions{
+				Cmd:          sandboxConfig.ExecCommand(),
 				AttachStdout: true,
 				AttachStderr: true,
-				User:         sandboxConfig.User,
-			}
-
-			execResp, err := cli.ContainerExecCreate(execCtx, resp.ID, execConfig)
+			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to create exec: %v", err)
 			}
 
-			// Attach to the exec command to capture output
-			response, err := cli.ContainerExecAttach(execCtx, execResp.ID, container.ExecStartOptions{})
+			// Attach to exec
+			response, err := cli.ContainerExecAttach(execCtx, execResp.ID, container.ExecAttachOptions{})
 			if err != nil {
 				return nil, fmt.Errorf("failed to attach to exec: %v", err)
 			}
@@ -248,7 +310,6 @@ func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Con
 					return nil, fmt.Errorf("failed to inspect exec: %v", err)
 				}
 				if !inspectResp.Running {
-					// Return error if exec command failed
 					if inspectResp.ExitCode != 0 {
 						if stderr.Len() > 0 {
 							return mcp.NewToolResultError(stderr.String()), nil
@@ -256,7 +317,6 @@ func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Con
 						return mcp.NewToolResultError(fmt.Sprintf("Command failed with exit code %d", inspectResp.ExitCode)), nil
 					}
 
-					// Include stderr in stdout if present
 					if stderr.Len() > 0 {
 						stdout.WriteString("\nStderr:\n")
 						stdout.Write(stderr.Bytes())
@@ -276,7 +336,6 @@ func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Con
 				return nil, fmt.Errorf("error waiting for container: %v", err)
 			}
 		case status := <-statusCh:
-			// Get container logs
 			logs, err := cli.ContainerLogs(execCtx, resp.ID, container.LogsOptions{
 				ShowStdout: true,
 				ShowStderr: true,
@@ -288,19 +347,16 @@ func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Con
 			}
 			defer logs.Close()
 
-			// Read stdout and stderr
 			stdout := new(bytes.Buffer)
 			stderr := new(bytes.Buffer)
 			if _, err := stdcopy.StdCopy(stdout, stderr, logs); err != nil {
 				return nil, fmt.Errorf("failed to read logs: %v", err)
 			}
 
-			// Return error if command failed
 			if status.StatusCode != 0 {
 				return mcp.NewToolResultError(stderr.String()), nil
 			}
 
-			// Include stderr in stdout if present
 			if stderr.Len() > 0 {
 				stdout.WriteString("\nStderr:\n")
 				stdout.Write(stderr.Bytes())
@@ -315,20 +371,81 @@ func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Con
 	}
 }
 
+// CleanupOrphanedContainers removes any stopped Docker containers from previous runs
+func CleanupOrphanedContainers() {
+	cli, err := client.NewClientWithOpts(
+		client.FromEnv,
+		client.WithAPIVersionNegotiation(),
+	)
+	if err != nil {
+		log.Printf("Failed to create Docker client for cleanup: %v", err)
+		return
+	}
+	defer cli.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// List all containers (including stopped) with our label
+	containers, err := cli.ContainerList(ctx, container.ListOptions{
+		All: true,
+		Filters: filters.NewArgs(filters.Arg("label", "sandbox-mcp=true")),
+	})
+	if err != nil {
+		log.Printf("Failed to list containers for cleanup: %v", err)
+		return
+	}
+
+	for _, c := range containers {
+		log.Printf("Removing orphaned sandbox container: %s (%s)", c.ID[:12], c.Status)
+		_ = cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{
+			Force:         true,
+			RemoveVolumes: true,
+		})
+	}
+
+	if len(containers) > 0 {
+		log.Printf("Cleaned up %d orphaned sandbox containers", len(containers))
+	}
+}
+
+// CleanupOrphanedSessions removes leftover session directories from previous runs
+func CleanupOrphanedSessions() {
+	baseDir := DefaultSessionConfig().BaseDir
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("Failed to read session base directory for cleanup: %v", err)
+		}
+		return
+	}
+
+	cleaned := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			path := filepath.Join(baseDir, entry.Name())
+			if err := os.RemoveAll(path); err != nil {
+				log.Printf("Failed to remove orphaned session %s: %v", entry.Name(), err)
+			} else {
+				cleaned++
+			}
+		}
+	}
+
+	if cleaned > 0 {
+		log.Printf("Cleaned up %d orphaned session directories", cleaned)
+	}
+}
+
 // generateSandboxDescription creates a comprehensive description of the sandbox environment
 func generateSandboxDescription(sandboxConfig *config.SandboxConfig) string {
-	// Start with the base description from the config
 	description := sandboxConfig.Description
 
-	// Ensure the base description ends with a period if it doesn't already
 	if !strings.HasSuffix(description, ".") {
 		description += "."
 	}
-
-	// Add a space after the description
 	description += " "
 
-	// Create a more natural description of the sandbox environment with inline pluralization
 	coreText := "cores"
 	if sandboxConfig.Resources.CPU == 1 {
 		coreText = "core"
@@ -341,7 +458,6 @@ func generateSandboxDescription(sandboxConfig *config.SandboxConfig) string {
 		sandboxConfig.Resources.Memory,
 		sandboxConfig.Resources.Processes)
 
-	// Add network and filesystem information
 	if sandboxConfig.Security.Network == "none" {
 		description += " It has no network access"
 	} else {
@@ -354,7 +470,6 @@ func generateSandboxDescription(sandboxConfig *config.SandboxConfig) string {
 		description += " and read-write filesystem permissions."
 	}
 
-	// Add information about required files
 	if len(sandboxConfig.Parameters.Files) > 0 {
 		if len(sandboxConfig.Parameters.Files) == 1 {
 			file := sandboxConfig.Parameters.Files[0]
@@ -388,8 +503,10 @@ func generateSandboxDescription(sandboxConfig *config.SandboxConfig) string {
 		description += " It supports uploading additional files."
 	}
 
-	// Add timeout information
 	description += fmt.Sprintf(" The execution is limited to %d seconds.", sandboxConfig.TimeoutRaw)
+
+	// Add session support information
+	description += " Supports session-based persistent storage via `session_id` parameter for iterative development. Use `{filename}_patch` for incremental edits instead of rewriting entire files."
 
 	return description
 }
