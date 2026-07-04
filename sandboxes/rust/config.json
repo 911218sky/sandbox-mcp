@@ -14,7 +14,7 @@
 	"command": [
 		"sh",
 		"-c",
-		"rustc -o main main.rs && ./main"
+		"rustc -o /tmp/main main.rs && /tmp/main"
 	],
 	"parameters": {
 		"additionalFiles": true

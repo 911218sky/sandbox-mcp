@@ -14,7 +14,7 @@
 	"command": [
 		"sh",
 		"-c",
-		"gcc -o main main.c -lm && ./main"
+		"gcc -o /tmp/main main.c -lm && /tmp/main"
 	],
 	"parameters": {
 		"additionalFiles": true

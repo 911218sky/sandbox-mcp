@@ -14,7 +14,7 @@
 	"command": [
 		"sh",
 		"-c",
-		"g++ -std=c++20 -o main main.cpp -lm && ./main"
+		"g++ -std=c++20 -o /tmp/main main.cpp -lm && /tmp/main"
 	],
 	"parameters": {
 		"additionalFiles": true
