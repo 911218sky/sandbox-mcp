@@ -91,7 +91,7 @@ func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Con
 			return nil, fmt.Errorf("failed to create a temporary directory: %v", err)
 		}
 		defer os.RemoveAll(dir)
-		if err := os.Chmod(dir, 0755); err != nil {
+		if err := os.Chmod(dir, 0777); err != nil {
 			return nil, fmt.Errorf("failed to set temporary directory permissions: %v", err)
 		}
 
