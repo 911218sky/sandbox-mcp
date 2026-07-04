@@ -134,7 +134,7 @@ func parseHunkHeader(header string) (oldStart, oldCount, newStart, newCount int,
 	header = strings.TrimSpace(header)
 	
 	parts := strings.Fields(header)
-	if len(parts) != 2 {
+	if len(parts) < 2 {
 		return 0, 0, 0, 0, fmt.Errorf("invalid hunk header format")
 	}
 	

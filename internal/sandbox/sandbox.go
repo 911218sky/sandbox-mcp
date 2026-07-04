@@ -99,7 +99,6 @@ func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Con
 
 		// Resolve working directory
 		var dir string
-		var sessionCleanup func()
 		if useSession {
 			session, err := sessionManager.GetOrCreate(sessionID)
 			if err != nil {
@@ -107,11 +106,11 @@ func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Con
 			}
 			dir = session.Dir
 			if cleanup {
-				sessionCleanup = func() {
+				defer func() {
 					if err := sessionManager.Remove(sessionID); err != nil {
 						log.Printf("Failed to remove session %s: %v", sessionID, err)
 					}
-				}
+				}()
 			}
 		} else {
 			var err error
@@ -122,9 +121,8 @@ func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Con
 			if err := os.Chmod(dir, 0777); err != nil {
 				return nil, fmt.Errorf("failed to set temporary directory permissions: %v", err)
 			}
-			sessionCleanup = func() { os.RemoveAll(dir) }
+			defer os.RemoveAll(dir)
 		}
-		defer sessionCleanup()
 
 		// Process entrypoint file
 		entrypointFile := config.SandboxFile{Name: sandboxConfig.Entrypoint}
@@ -157,8 +155,8 @@ func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Con
 			patchStr, _ := request.Params.Arguments[paramName+"_patch"].(string)
 
 			filePath := filepath.Join(dir, file.Name)
-			_, fileExists := os.Stat(filePath)
-			isRequired := !useSession || fileExists != nil
+			_, fileStatErr := os.Stat(filePath)
+			isRequired := !useSession || fileStatErr != nil
 
 			if content != "" {
 				if err := os.WriteFile(filePath, []byte(content), sandboxConfig.Mount.ScriptPerms()); err != nil {
