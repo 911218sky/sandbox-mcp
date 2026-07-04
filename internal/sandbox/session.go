@@ -19,8 +19,9 @@ type SessionConfig struct {
 
 // DefaultSessionConfig returns default configuration
 func DefaultSessionConfig() SessionConfig {
+	baseDir := filepath.Join(os.TempDir(), "sandbox-mcp-sessions")
 	return SessionConfig{
-		BaseDir:     "/tmp/sandbox-mcp-sessions",
+		BaseDir:     baseDir,
 		MaxSessions: 50,              // Max 50 concurrent sessions
 		MaxAge:      2 * time.Hour,   // 2 hours inactivity
 		CleanupTick: 10 * time.Minute, // Clean up every 10 minutes

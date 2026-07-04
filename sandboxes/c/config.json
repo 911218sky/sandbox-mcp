@@ -1,44 +1,44 @@
 {
-  "id": "c",
-  "name": "C",
-  "description": "Compile and run C code in an isolated environment.",
-  "hints": {
-    "isDestructive": false,
-    "isIdempotent": true
-  },
-  "version": "0.1.0",
-  "image": "sandbox-mcp/c:latest",
-  "user": "sandbox",
-  "entrypoint": "main.c",
-  "timeout": 120,
-  "command": [
-    "sh",
-    "-c",
-    "gcc -o /tmp/main main.c -lm && /tmp/main"
-  ],
-  "parameters": {
-    "additionalFiles": true
-  },
-  "security": {
-    "readOnly": false,
-    "capDrop": [
-      "all"
-    ],
-    "securityOpt": [
-      "no-new-privileges:true"
-    ],
-    "network": "none"
-  },
-  "resources": {
-    "cpu": 1,
-    "memory": 256,
-    "processes": 64,
-    "files": 96
-  },
-  "mount": {
-    "workdir": "/sandbox",
-    "tmpdirPrefix": "sandbox-mcp-",
-    "scriptPerms": "0755",
-    "readOnly": false
-  }
+	"id": "c",
+	"name": "C",
+	"description": "Compile and run C code in an isolated environment.",
+	"hints": {
+		"isDestructive": false,
+		"isIdempotent": true
+	},
+	"version": "0.1.0",
+	"image": "sandbox-mcp/c:latest",
+	"user": "sandbox",
+	"entrypoint": "main.c",
+	"timeout": 120,
+	"command": [
+		"sh",
+		"-c",
+		"gcc -o /tmp/main *.c -lm && /tmp/main"
+	],
+	"parameters": {
+		"additionalFiles": true
+	},
+	"security": {
+		"readOnly": false,
+		"capDrop": [
+			"all"
+		],
+		"securityOpt": [
+			"no-new-privileges:true"
+		],
+		"network": "none"
+	},
+	"resources": {
+		"cpu": 1,
+		"memory": 256,
+		"processes": 64,
+		"files": 96
+	},
+	"mount": {
+		"workdir": "/sandbox",
+		"tmpdirPrefix": "sandbox-mcp-",
+		"scriptPerms": "0755",
+		"readOnly": false
+	}
 }
