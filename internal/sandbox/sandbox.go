@@ -312,12 +312,16 @@ func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Con
 						if stderr.Len() > 0 {
 							return mcp.NewToolResultError(stderr.String()), nil
 						}
-						return mcp.NewToolResultError(fmt.Sprintf("Command failed with exit code %d", inspectResp.ExitCode)), nil
+						return mcp.NewToolResultError(fmt.Sprintf("Command failed with exit code %d (no error output)", inspectResp.ExitCode)), nil
 					}
 
 					if stderr.Len() > 0 {
 						stdout.WriteString("\nStderr:\n")
 						stdout.Write(stderr.Bytes())
+					}
+
+					if stdout.Len() == 0 {
+						return mcp.NewToolResultText("Command executed successfully with no output."), nil
 					}
 
 					return mcp.NewToolResultText(stdout.String()), nil
@@ -352,12 +356,19 @@ func NewSandboxToolHandler(sandboxConfig *config.SandboxConfig) func(context.Con
 			}
 
 			if status.StatusCode != 0 {
-				return mcp.NewToolResultError(stderr.String()), nil
+				if stderr.Len() > 0 {
+					return mcp.NewToolResultError(stderr.String()), nil
+				}
+				return mcp.NewToolResultError(fmt.Sprintf("Command failed with exit code %d (no error output)", status.StatusCode)), nil
 			}
 
 			if stderr.Len() > 0 {
 				stdout.WriteString("\nStderr:\n")
 				stdout.Write(stderr.Bytes())
+			}
+
+			if stdout.Len() == 0 {
+				return mcp.NewToolResultText("Command executed successfully with no output."), nil
 			}
 
 			return mcp.NewToolResultText(stdout.String()), nil
