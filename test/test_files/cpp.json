@@ -1,0 +1,65 @@
+[
+  {
+    "request": {
+      "main_cpp": "#include <iostream>\n\nint main() {\n    std::cout << \"Hello from C++!\" << std::endl;\n    return 0;\n}"
+    },
+    "response": {
+      "text": "Hello from C++!\n"
+    }
+  },
+  {
+    "request": {
+      "main_cpp": "#include <iostream>\n#include <fstream>\n#include <string>\n\nint main() {\n    std::ifstream f(\"hello.txt\");\n    if (!f.is_open()) {\n        std::cerr << \"Error: cannot open file\" << std::endl;\n        return 1;\n    }\n    std::string line;\n    while (std::getline(f, line)) {\n        std::cout << line << std::endl;\n    }\n    return 0;\n}",
+      "files": [
+        {
+          "filename": "hello.txt",
+          "content": "hello from C++ file!"
+        }
+      ]
+    },
+    "response": {
+      "text": "hello from C++ file!\n"
+    }
+  },
+  {
+    "request": {
+      "main_cpp": "#include <nonexistent>\n\nint main() {\n    return 0;\n}"
+    },
+    "response": {
+      "text": "fatal error: nonexistent: No such file or directory",
+      "isError": true
+    }
+  },
+  {
+    "request": {
+      "main_cpp": "#include <iostream>\n#include <vector>\n#include <algorithm>\n\nint main() {\n    std::vector<int> v = {5, 3, 1, 4, 2};\n    std::sort(v.begin(), v.end());\n    for (int i = 0; i < v.size(); i++) {\n        std::cout << v[i];\n        if (i < (int)v.size() - 1) std::cout << \", \";\n    }\n    std::cout << std::endl;\n\n    // Test C++20 features\n    auto sum = std::accumulate(v.begin(), v.end(), 0);\n    std::cout << \"Sum: \" << sum << std::endl;\n    return 0;\n}"
+    },
+    "response": {
+      "text": "1, 2, 3, 4, 5\nSum: 15\n"
+    }
+  },
+  {
+    "request": {
+      "main_cpp": "#include <iostream>\n#include <string>\n#include <map>\n\nclass Animal {\npublic:\n    virtual std::string speak() const = 0;\n    virtual ~Animal() = default;\n};\n\nclass Dog : public Animal {\npublic:\n    std::string speak() const override { return \"Woof!\"; }\n};\n\nclass Cat : public Animal {\npublic:\n    std::string speak() const override { return \"Meow!\"; }\n};\n\nint main() {\n    std::map<std::string, Animal*> animals;\n    Dog dog;\n    Cat cat;\n    animals[\"dog\"] = &dog;\n    animals[\"cat\"] = &cat;\n\n    for (auto& [name, animal] : animals) {\n        std::cout << name << \": \" << animal->speak() << std::endl;\n    }\n    return 0;\n}"
+    },
+    "response": {
+      "text": "cat: Meow!\ndog: Woof!\n"
+    }
+  },
+  {
+    "request": {
+      "main_cpp": "#include <iostream>\n#include <vector>\n#include <numeric>\n#include <cmath>\n\nint main() {\n    std::vector<double> values = {1.5, 2.5, 3.5, 4.5, 5.5};\n\n    double sum = std::accumulate(values.begin(), values.end(), 0.0);\n    double mean = sum / values.size();\n\n    double sq_sum = 0;\n    for (double v : values) {\n        sq_sum += std::pow(v - mean, 2);\n    }\n    double stddev = std::sqrt(sq_sum / values.size());\n\n    std::cout << \"Mean: \" << mean << std::endl;\n    std::cout << \"StdDev: \" << stddev << std::endl;\n    return 0;\n}"
+    },
+    "response": {
+      "text": "Mean: 3.5\nStdDev: 1.41421\n"
+    }
+  },
+  {
+    "request": {
+      "main_cpp": "#include <iostream>\n#include <thread>\n#include <mutex>\n\nstd::mutex mtx;\nint counter = 0;\n\nvoid increment() {\n    for (int i = 0; i < 1000; i++) {\n        std::lock_guard<std::mutex> lock(mtx);\n        counter++;\n    }\n}\n\nint main() {\n    std::thread t1(increment);\n    std::thread t2(increment);\n    t1.join();\n    t2.join();\n    std::cout << \"Counter: \" << counter << std::endl;\n    return 0;\n}"
+    },
+    "response": {
+      "text": "Counter: 2000\n"
+    }
+  }
+]
