@@ -14,7 +14,7 @@
 	"command": [
 		"sh",
 		"-c",
-		"for imp in 'java.util.*' 'java.io.*' 'java.math.*' 'java.util.stream.*'; do grep -q \"import $imp\" Main.java 2>/dev/null || sed -i \"1i\\import $imp;\" Main.java; done && javac --enable-preview --source 21 -d /tmp *.java && java --enable-preview -cp /tmp Main"
+		"mkdir -p /tmp/j && cp *.java /tmp/j/ && cd /tmp/j && for imp in 'java.util.*' 'java.io.*' 'java.math.*' 'java.util.stream.*'; do if ! grep -q \"import $imp\" Main.java 2>/dev/null; then cp Main.java /tmp/_jorig; rm -f Main.java; echo \"import $imp;\" > Main.java; cat /tmp/_jorig >> Main.java; fi; done && javac --enable-preview --source 21 -d /tmp/j *.java && java --enable-preview -cp /tmp/j Main"
 	],
 	"parameters": {
 		"additionalFiles": true

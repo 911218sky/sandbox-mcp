@@ -29,7 +29,7 @@ func ApplyPatch(filePath string, patch string) error {
 	}
 	
 	// Write patched content
-	patchedContent := strings.Join(patchedLines, "\n")
+	patchedContent := strings.Join(patchedLines, "\n") + "\n"
 	if err := os.WriteFile(filePath, []byte(patchedContent), 0644); err != nil {
 		return fmt.Errorf("failed to write patched file: %w", err)
 	}
@@ -38,80 +38,107 @@ func ApplyPatch(filePath string, patch string) error {
 }
 
 // parseHunk extracts old lines (context+removed) and new lines (context+added) from a hunk
-func parseHunk(patchLines []string, startIdx int) (oldLines, newLines []string, endIdx int) {
+// oldCount is the number of old lines expected (from hunk header), used to stop correctly
+func parseHunk(patchLines []string, startIdx int, oldCount int) (oldLines, newLines []string, endIdx int) {
 	idx := startIdx
-	for idx < len(patchLines) {
+	oldSeen := 0
+	for idx < len(patchLines) && oldSeen < oldCount {
 		line := patchLines[idx]
 		if strings.HasPrefix(line, "@@") {
 			break
 		}
 		if strings.HasPrefix(line, "-") {
 			oldLines = append(oldLines, line[1:])
+			oldSeen++
 		} else if strings.HasPrefix(line, "+") {
 			newLines = append(newLines, line[1:])
 		} else if strings.HasPrefix(line, " ") {
 			oldLines = append(oldLines, line[1:])
 			newLines = append(newLines, line[1:])
+			oldSeen++
 		} else if line == "" {
+			// Empty line in diff context (represents an empty line in the file)
 			oldLines = append(oldLines, "")
 			newLines = append(newLines, "")
+			oldSeen++
+		} else {
+			// Unknown prefix, skip
+			break
 		}
+		idx++
+	}
+	// Skip any remaining "+" lines that are part of this hunk
+	for idx < len(patchLines) && strings.HasPrefix(patchLines[idx], "+") {
+		newLines = append(newLines, patchLines[idx][1:])
 		idx++
 	}
 	return oldLines, newLines, idx
 }
 
+// linesMatchExact checks if two sets of lines match exactly
+func linesMatchExact(original []string, start int, pattern []string) bool {
+	if start < 0 || start+len(pattern) > len(original) {
+		return false
+	}
+	for i, line := range pattern {
+		if original[start+i] != line {
+			return false
+		}
+	}
+	return true
+}
+
+// linesMatchTrim checks if two sets of lines match ignoring leading/trailing whitespace
+func linesMatchTrim(original []string, start int, pattern []string) bool {
+	if start < 0 || start+len(pattern) > len(original) {
+		return false
+	}
+	for i, line := range pattern {
+		if strings.TrimSpace(original[start+i]) != strings.TrimSpace(line) {
+			return false
+		}
+	}
+	return true
+}
+
 // findFuzzyMatch searches for oldLines in originalLines starting near targetPos
-// Returns the actual start position or -1 if not found
+// Supports: exact match, whitespace-insensitive match, and offset-based fuzzy match
 func findFuzzyMatch(originalLines []string, oldLines []string, targetPos int) int {
 	if len(oldLines) == 0 {
 		return targetPos
 	}
-	// Try exact match first
-	if targetPos+len(oldLines) <= len(originalLines) {
-		match := true
-		for i, line := range oldLines {
-			if originalLines[targetPos+i] != line {
-				match = false
-				break
-			}
-		}
-		if match {
-			return targetPos
-		}
+
+	// Pass 1: Exact match at targetPos
+	if linesMatchExact(originalLines, targetPos, oldLines) {
+		return targetPos
 	}
-	// Fuzzy search: expand outward from targetPos (up to 20 lines)
+
+	// Pass 2: Exact match with offset search (±20 lines)
 	maxOffset := 20
 	for offset := 1; offset <= maxOffset; offset++ {
-		// Try forward
-		pos := targetPos + offset
-		if pos >= 0 && pos+len(oldLines) <= len(originalLines) {
-			match := true
-			for i, line := range oldLines {
-				if originalLines[pos+i] != line {
-					match = false
-					break
-				}
-			}
-			if match {
-				return pos
-			}
+		if linesMatchExact(originalLines, targetPos+offset, oldLines) {
+			return targetPos + offset
 		}
-		// Try backward
-		pos = targetPos - offset
-		if pos >= 0 && pos+len(oldLines) <= len(originalLines) {
-			match := true
-			for i, line := range oldLines {
-				if originalLines[pos+i] != line {
-					match = false
-					break
-				}
-			}
-			if match {
-				return pos
-			}
+		if linesMatchExact(originalLines, targetPos-offset, oldLines) {
+			return targetPos - offset
 		}
 	}
+
+	// Pass 3: Whitespace-insensitive match at targetPos
+	if linesMatchTrim(originalLines, targetPos, oldLines) {
+		return targetPos
+	}
+
+	// Pass 4: Whitespace-insensitive match with offset search
+	for offset := 1; offset <= maxOffset; offset++ {
+		if linesMatchTrim(originalLines, targetPos+offset, oldLines) {
+			return targetPos + offset
+		}
+		if linesMatchTrim(originalLines, targetPos-offset, oldLines) {
+			return targetPos - offset
+		}
+	}
+
 	return -1
 }
 
@@ -137,15 +164,15 @@ func applyUnifiedDiff(originalLines []string, patch string) ([]string, error) {
 		line := patchLines[patchIdx]
 
 		if strings.HasPrefix(line, "@@") {
-			oldStart, _, _, _, err := parseHunkHeader(line)
+			oldStart, oldCount, _, _, err := parseHunkHeader(line)
 			if err != nil {
 				return nil, fmt.Errorf("invalid hunk header at line %d: %w", patchIdx, err)
 			}
 
 			patchIdx++
 
-			// Parse the hunk into old/new line sets
-			oldLines, newLines, nextPatchIdx := parseHunk(patchLines, patchIdx)
+			// Parse the hunk into old/new line sets, respecting oldCount
+			oldLines, newLines, nextPatchIdx := parseHunk(patchLines, patchIdx, oldCount)
 			patchIdx = nextPatchIdx
 
 			// Find where the old lines match in the original (with fuzzy search)
@@ -237,7 +264,6 @@ func GenerateDiff(original, modified string) string {
 	diff.WriteString("--- original\n")
 	diff.WriteString("+++ modified\n")
 	
-	// Simple line-by-line diff (not optimal, but works for small files)
 	maxLen := len(originalLines)
 	if len(modifiedLines) > maxLen {
 		maxLen = len(modifiedLines)
