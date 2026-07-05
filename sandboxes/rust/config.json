@@ -1,44 +1,44 @@
 {
-  "id": "rust",
-  "name": "Rust",
-  "description": "Compile and run Rust code in an isolated environment.",
-  "hints": {
-    "isDestructive": false,
-    "isIdempotent": true
-  },
-  "version": "0.1.0",
-  "image": "sandbox-mcp/rust:latest",
-  "user": "sandbox",
-  "entrypoint": "main.rs",
-  "timeout": 120,
-  "command": [
-    "sh",
-    "-c",
-    "rustc -o /tmp/main main.rs && /tmp/main"
-  ],
-  "parameters": {
-    "additionalFiles": true
-  },
-  "security": {
-    "readOnly": false,
-    "capDrop": [
-      "all"
-    ],
-    "securityOpt": [
-      "no-new-privileges:true"
-    ],
-    "network": "none"
-  },
-  "resources": {
-    "cpu": 2,
-    "memory": 1024,
-    "processes": 64,
-    "files": 96
-  },
-  "mount": {
-    "workdir": "/sandbox",
-    "tmpdirPrefix": "sandbox-mcp-",
-    "scriptPerms": "0755",
-    "readOnly": false
-  }
+	"id": "rust",
+	"name": "Rust",
+	"description": "Compile and run Rust code in an isolated environment.",
+	"hints": {
+		"isDestructive": false,
+		"isIdempotent": true
+	},
+	"version": "0.1.0",
+	"image": "sandbox-mcp/rust:latest",
+	"user": "sandbox",
+	"entrypoint": "main.rs",
+	"timeout": 120,
+	"command": [
+		"sh",
+		"-c",
+		"rustc --edition 2021 -o /tmp/main main.rs && /tmp/main"
+	],
+	"parameters": {
+		"additionalFiles": true
+	},
+	"security": {
+		"readOnly": false,
+		"capDrop": [
+			"all"
+		],
+		"securityOpt": [
+			"no-new-privileges:true"
+		],
+		"network": "none"
+	},
+	"resources": {
+		"cpu": 2,
+		"memory": 1024,
+		"processes": 64,
+		"files": 96
+	},
+	"mount": {
+		"workdir": "/sandbox",
+		"tmpdirPrefix": "sandbox-mcp-",
+		"scriptPerms": "0755",
+		"readOnly": false
+	}
 }

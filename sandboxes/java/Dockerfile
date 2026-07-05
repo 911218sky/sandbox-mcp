@@ -1,6 +1,6 @@
 FROM alpine:3.21
 
-RUN apk add --no-cache --repository=https://dl-cdn.alpinelinux.org/alpine/edge/testing openjdk23
+RUN apk add --no-cache openjdk21-jdk
 RUN adduser --home /sandbox --disabled-password sandbox
 
 USER sandbox

@@ -17,6 +17,10 @@ func ApplyPatch(filePath string, patch string) error {
 	}
 	
 	originalLines := strings.Split(string(originalContent), "\n")
+	// Remove trailing empty string if file ends with newline
+	if len(originalLines) > 0 && originalLines[len(originalLines)-1] == "" {
+		originalLines = originalLines[:len(originalLines)-1]
+	}
 	
 	// Parse and apply patch
 	patchedLines, err := applyUnifiedDiff(originalLines, patch)
@@ -33,14 +37,92 @@ func ApplyPatch(filePath string, patch string) error {
 	return nil
 }
 
-// applyUnifiedDiff applies a unified diff patch to lines
+// parseHunk extracts old lines (context+removed) and new lines (context+added) from a hunk
+func parseHunk(patchLines []string, startIdx int) (oldLines, newLines []string, endIdx int) {
+	idx := startIdx
+	for idx < len(patchLines) {
+		line := patchLines[idx]
+		if strings.HasPrefix(line, "@@") {
+			break
+		}
+		if strings.HasPrefix(line, "-") {
+			oldLines = append(oldLines, line[1:])
+		} else if strings.HasPrefix(line, "+") {
+			newLines = append(newLines, line[1:])
+		} else if strings.HasPrefix(line, " ") {
+			oldLines = append(oldLines, line[1:])
+			newLines = append(newLines, line[1:])
+		} else if line == "" {
+			oldLines = append(oldLines, "")
+			newLines = append(newLines, "")
+		}
+		idx++
+	}
+	return oldLines, newLines, idx
+}
+
+// findFuzzyMatch searches for oldLines in originalLines starting near targetPos
+// Returns the actual start position or -1 if not found
+func findFuzzyMatch(originalLines []string, oldLines []string, targetPos int) int {
+	if len(oldLines) == 0 {
+		return targetPos
+	}
+	// Try exact match first
+	if targetPos+len(oldLines) <= len(originalLines) {
+		match := true
+		for i, line := range oldLines {
+			if originalLines[targetPos+i] != line {
+				match = false
+				break
+			}
+		}
+		if match {
+			return targetPos
+		}
+	}
+	// Fuzzy search: expand outward from targetPos (up to 20 lines)
+	maxOffset := 20
+	for offset := 1; offset <= maxOffset; offset++ {
+		// Try forward
+		pos := targetPos + offset
+		if pos >= 0 && pos+len(oldLines) <= len(originalLines) {
+			match := true
+			for i, line := range oldLines {
+				if originalLines[pos+i] != line {
+					match = false
+					break
+				}
+			}
+			if match {
+				return pos
+			}
+		}
+		// Try backward
+		pos = targetPos - offset
+		if pos >= 0 && pos+len(oldLines) <= len(originalLines) {
+			match := true
+			for i, line := range oldLines {
+				if originalLines[pos+i] != line {
+					match = false
+					break
+				}
+			}
+			if match {
+				return pos
+			}
+		}
+	}
+	return -1
+}
+
+// applyUnifiedDiff applies a unified diff patch to lines with fuzzy matching support
 func applyUnifiedDiff(originalLines []string, patch string) ([]string, error) {
 	result := make([]string, 0, len(originalLines))
 	patchLines := strings.Split(patch, "\n")
-	
+
 	originalIdx := 0
 	patchIdx := 0
-	
+
 	// Skip header lines (---, +++)
 	for patchIdx < len(patchLines) {
 		line := patchLines[patchIdx]
@@ -50,79 +132,52 @@ func applyUnifiedDiff(originalLines []string, patch string) ([]string, error) {
 			break
 		}
 	}
-	
+
 	for patchIdx < len(patchLines) {
 		line := patchLines[patchIdx]
-		
-		// Parse hunk header @@ -oldStart,oldCount +newStart,newCount @@
+
 		if strings.HasPrefix(line, "@@") {
-			oldStart, oldCount, newStart, newCount, err := parseHunkHeader(line)
+			oldStart, _, _, _, err := parseHunkHeader(line)
 			if err != nil {
 				return nil, fmt.Errorf("invalid hunk header at line %d: %w", patchIdx, err)
 			}
-			
-			// Copy unchanged lines before this hunk
-			for originalIdx < oldStart-1 && originalIdx < len(originalLines) {
+
+			patchIdx++
+
+			// Parse the hunk into old/new line sets
+			oldLines, newLines, nextPatchIdx := parseHunk(patchLines, patchIdx)
+			patchIdx = nextPatchIdx
+
+			// Find where the old lines match in the original (with fuzzy search)
+			targetPos := oldStart - 1
+			if originalIdx > targetPos {
+				targetPos = originalIdx
+			}
+			matchPos := findFuzzyMatch(originalLines, oldLines, targetPos)
+			if matchPos == -1 {
+				return nil, fmt.Errorf("could not find matching context near line %d", oldStart)
+			}
+
+			// Copy unchanged lines before the match
+			for originalIdx < matchPos {
 				result = append(result, originalLines[originalIdx])
 				originalIdx++
 			}
-			
-			// Process hunk
-			patchIdx++
-			hunkOldIdx := 0
-			hunkNewIdx := 0
-			
-			for patchIdx < len(patchLines) {
-				patchLine := patchLines[patchIdx]
-				
-				// Stop at next hunk
-				if strings.HasPrefix(patchLine, "@@") {
-					break
-				}
-				
-				if strings.HasPrefix(patchLine, "-") {
-					// Remove line (skip in original)
-					if hunkOldIdx >= oldCount {
-						return nil, fmt.Errorf("too many removals in hunk starting at line %d", oldStart)
-					}
-					originalIdx++
-					hunkOldIdx++
-				} else if strings.HasPrefix(patchLine, "+") {
-					// Add line
-					if hunkNewIdx >= newCount {
-						return nil, fmt.Errorf("too many additions in hunk starting at line %d", newStart)
-					}
-					result = append(result, patchLine[1:]) // Remove '+' prefix
-					hunkNewIdx++
-				} else if strings.HasPrefix(patchLine, " ") || patchLine == "" {
-					// Context line (unchanged)
-					if originalIdx < len(originalLines) {
-						if strings.HasPrefix(patchLine, " ") {
-							result = append(result, originalLines[originalIdx])
-						} else {
-							result = append(result, "") // Empty line
-						}
-						originalIdx++
-						hunkOldIdx++
-						hunkNewIdx++
-					}
-				} else {
-					return nil, fmt.Errorf("invalid patch line at line %d: %s", patchIdx, patchLine)
-				}
-				
-				patchIdx++
-			}
+
+			// Apply the hunk: skip old lines, add new lines
+			result = append(result, newLines...)
+			originalIdx += len(oldLines)
 		} else {
 			patchIdx++
 		}
 	}
-	
+
 	// Copy remaining original lines
 	for originalIdx < len(originalLines) {
 		result = append(result, originalLines[originalIdx])
 		originalIdx++
 	}
-	
+
 	return result, nil
 }
 
