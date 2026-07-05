@@ -1,7 +1,7 @@
 {
 	"id": "java",
 	"name": "Java",
-	"description": "Compile and run Java code in an isolated sandbox. Supports Java preview features.",
+	"description": "Compile and run Java code in an isolated sandbox. Supports Java preview features. Common imports (java.util.*, java.io.*, java.math.*, java.util.stream.*) are auto-injected. When modifying code via patch, reuse existing variable names instead of redeclaring them.",
 	"hints": {
 		"isDestructive": false,
 		"isIdempotent": true
@@ -14,7 +14,7 @@
 	"command": [
 		"sh",
 		"-c",
-		"javac --enable-preview --source 21 -d /tmp *.java && java --enable-preview -cp /tmp Main"
+		"for imp in 'java.util.*' 'java.io.*' 'java.math.*' 'java.util.stream.*'; do grep -q \"import $imp\" Main.java 2>/dev/null || sed -i \"1i\\import $imp;\" Main.java; done && javac --enable-preview --source 21 -d /tmp *.java && java --enable-preview -cp /tmp Main"
 	],
 	"parameters": {
 		"additionalFiles": true
