@@ -1,7 +1,7 @@
 {
 	"id": "java",
 	"name": "Java",
-	"description": "Compile and run Java code in an isolated sandbox. Supports Java preview features. Common imports (java.util.*, java.io.*, java.math.*, java.util.stream.*) are auto-injected. When modifying code via patch, reuse existing variable names instead of redeclaring them.",
+	"description": "Compile and run Java code in an isolated sandbox. Supports Java preview features. Common imports (java.util.*, java.io.*, java.math.*, java.util.stream.*) are auto-injected. Supports reading non-Java resource files (.json, .txt, .csv, etc.) via classpath or relative paths. When modifying code via patch, reuse existing variable names instead of redeclaring them.",
 	"hints": {
 		"isDestructive": false,
 		"isIdempotent": true
@@ -14,7 +14,7 @@
 	"command": [
 		"sh",
 		"-c",
-		"mkdir -p /tmp/j && cp *.java /tmp/j/ && cd /tmp/j && for imp in 'java.util.*' 'java.io.*' 'java.math.*' 'java.util.stream.*'; do if ! grep -q \"import $imp\" Main.java 2>/dev/null; then cp Main.java /tmp/_jorig; rm -f Main.java; echo \"import $imp;\" > Main.java; cat /tmp/_jorig >> Main.java; fi; done && javac --enable-preview --source 21 -d /tmp/j *.java && java --enable-preview -cp /tmp/j Main"
+		"mkdir -p /tmp/j && cp -r . /tmp/j/ && cd /tmp/j && for imp in 'java.util.*' 'java.io.*' 'java.math.*' 'java.util.stream.*'; do if ! grep -q \"import $imp\" Main.java 2>/dev/null; then cp Main.java /tmp/_jorig; rm -f Main.java; echo \"import $imp;\" > Main.java; cat /tmp/_jorig >> Main.java; fi; done && javac --enable-preview --source 21 -d /tmp/jout *.java && cp -rn /tmp/j/* /tmp/jout/ 2>/dev/null; java --enable-preview -cp /tmp/jout Main"
 	],
 	"parameters": {
 		"additionalFiles": true
